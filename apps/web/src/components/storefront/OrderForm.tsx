@@ -5,11 +5,13 @@ import {
   deliveryFeeFor,
   formatMoney,
   priceForQuantity,
+  promoDiscount,
   type PublicOrderCreated,
   type PublicProductDto,
   type PublicStoreDto,
 } from '@myabeshop/shared/client';
 import { t } from '@/lib/storefront-i18n';
+import { fire } from './Pixels';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const SOURCES = ['facebook', 'instagram', 'tiktok', 'whatsapp', 'google'];
@@ -62,7 +64,34 @@ export function OrderForm({ store, product }: { store: PublicStoreDto; product: 
   const subtotal = priceForQuantity(unitPrice, quantity, product.quantityOffers);
   const zone = store.zones.find((z) => z.id === zoneId);
   const fee = zone ? deliveryFeeFor(zone, subtotal) : null;
-  const total = subtotal + (fee ?? 0);
+  const [promoOpen, setPromoOpen] = useState(false);
+  const [promoInput, setPromoInput] = useState('');
+  const [promo, setPromo] = useState<{ code: string; type: 'PERCENT' | 'FIXED' | 'FREE_SHIPPING'; value: number } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoBusy, setPromoBusy] = useState(false);
+  const discount = promo ? promoDiscount(promo, subtotal, fee ?? 0) : 0;
+  const total = subtotal + (fee ?? 0) - discount;
+  const en = store.locale === 'en';
+  const checkoutFired = useRef(false);
+
+  async function applyPromo() {
+    setPromoBusy(true);
+    setPromoError(null);
+    try {
+      const res = await fetch(`${API_URL}/public/stores/${store.slug}/promo/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: promoInput, subtotal, deliveryFee: fee ?? 0 }),
+      });
+      const data = await res.json();
+      if (!res.ok) setPromoError(data.message ?? (en ? 'Invalid code' : 'Code invalide'));
+      else setPromo({ code: data.code, type: data.type, value: data.value });
+    } catch {
+      setPromoError(en ? 'Network error' : 'Problème de connexion');
+    } finally {
+      setPromoBusy(false);
+    }
+  }
   const available = product.available && (product.variants.length === 0 || !!variant?.available);
 
   // Remember the customer's details for their next order on this device.
@@ -135,11 +164,16 @@ export function OrderForm({ store, product }: { store: PublicStoreDto; product: 
           note: note.trim() || null,
           source,
           utm,
+          promoCode: promo?.code,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
         if (data.code === 'INVALID_PHONE') setErrors({ phone: L.phoneInvalid });
+        if (String(data.code ?? '').startsWith('PROMO_')) {
+          setPromo(null);
+          setPromoError(data.message);
+        }
         setFormError(data.message ?? 'Erreur');
         setSubmitting(false);
         return;
@@ -168,7 +202,16 @@ export function OrderForm({ store, product }: { store: PublicStoreDto; product: 
 
   return (
     <>
-      <form ref={formRef} id="commander" onSubmit={submit} noValidate className="scroll-mt-20 space-y-4 rounded-2xl border-2 store-border bg-white p-4 shadow-sm">
+      <form
+        ref={formRef}
+        id="commander"
+        onSubmit={submit}
+        noValidate
+        onFocus={() => {
+          if (checkoutFired.current) return;
+          checkoutFired.current = true;
+          fire({ name: 'InitiateCheckout', value: subtotal, currency: store.currency, contentId: product.id, contentName: product.title });
+        }} className="scroll-mt-20 space-y-4 rounded-2xl border-2 store-border bg-white p-4 shadow-sm">
         <h2 className="text-lg font-bold">{L.orderFormTitle}</h2>
 
         {product.options.map((option) => (
@@ -314,6 +357,39 @@ export function OrderForm({ store, product }: { store: PublicStoreDto; product: 
           <input id="of-note" value={note} onChange={(e) => setNote(e.target.value)} className="tap w-full rounded-xl border border-line px-3.5 py-2.5" />
         </div>
 
+        {store.promoCodes && (
+          <div>
+            {promo ? (
+              <p className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                <span>
+                  🎉 {en ? 'Code' : 'Code'} <strong>{promo.code}</strong> {en ? 'applied' : 'appliqué'}
+                </span>
+                <button type="button" className="underline" onClick={() => setPromo(null)}>
+                  {en ? 'Remove' : 'Retirer'}
+                </button>
+              </p>
+            ) : promoOpen ? (
+              <div className="flex gap-2">
+                <input
+                  aria-label={en ? 'Promo code' : 'Code promo'}
+                  value={promoInput}
+                  onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                  placeholder={en ? 'Promo code' : 'Code promo'}
+                  className="tap min-w-0 flex-1 rounded-xl border border-line px-3.5 py-2.5 uppercase"
+                />
+                <button type="button" disabled={!promoInput || promoBusy} onClick={() => void applyPromo()} className="tap rounded-xl border-2 store-border px-4 text-sm font-semibold store-text disabled:opacity-50">
+                  {promoBusy ? '…' : en ? 'Apply' : 'Appliquer'}
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setPromoOpen(true)} className="min-h-11 text-sm font-medium store-text">
+                🏷️ {en ? 'I have a promo code' : 'J’ai un code promo'}
+              </button>
+            )}
+            {promoError && <p className="mt-1 text-sm text-red-600">{promoError}</p>}
+          </div>
+        )}
+
         <dl className="space-y-1 rounded-xl bg-canvas p-3 text-sm">
           <div className="flex justify-between">
             <dt>{L.subtotal}</dt>
@@ -323,6 +399,12 @@ export function OrderForm({ store, product }: { store: PublicStoreDto; product: 
             <dt>{L.delivery}</dt>
             <dd>{fee == null ? '—' : fee === 0 ? L.free : fmt(fee)}</dd>
           </div>
+          {discount > 0 && (
+            <div className="flex justify-between font-medium text-emerald-700">
+              <dt>{en ? 'Discount' : 'Remise'} ({promo?.code})</dt>
+              <dd>−{fmt(discount)}</dd>
+            </div>
+          )}
           <div className="flex justify-between border-t border-line pt-1.5 text-base font-bold">
             <dt>{L.total}</dt>
             <dd>{fmt(total)}</dd>

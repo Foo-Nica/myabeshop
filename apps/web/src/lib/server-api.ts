@@ -1,5 +1,5 @@
 import 'server-only';
-import type { PublicProductDto, PublicStoreDto, PublicTrackingDto } from '@myabeshop/shared';
+import type { PlanDto, PublicProductDto, PublicStoreDto, PublicTrackingDto } from '@myabeshop/shared';
 
 const API = process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -25,5 +25,6 @@ export const publicApi = {
     ),
   byCode: (code: string) => get<{ store: PublicStoreDto; product: PublicProductDto }>(`/public/p/${encodeURIComponent(code)}`),
   track: (token: string) => get<PublicTrackingDto>(`/public/track/${encodeURIComponent(token)}`, 0),
+  plans: () => get<PlanDto[]>('/plans', 300),
   resolveHost: (host: string) => get<{ slug: string }>(`/public/resolve?host=${encodeURIComponent(host)}`, 300),
 };

@@ -63,7 +63,7 @@ export default function DashboardHome() {
             Partagez vos liens produits : les commandes apparaissent ici en direct.
           </EmptyState>
         ) : (
-          <Card className="p-0 px-3">
+          <Card className="!p-0 px-3">
             <ul>{recent.map((o) => <OrderRow key={o.id} order={o} />)}</ul>
           </Card>
         )}

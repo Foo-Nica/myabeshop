@@ -120,6 +120,11 @@ export default function OrderPage({ params }: { params: Promise<{ id: string }> 
       </div>
 
       {error && <Alert>{error}</Alert>}
+      {order.flags.includes('OVER_PLAN_LIMIT') && (
+        <Alert>
+          Cette commande est arrivée après la limite mensuelle de votre plan. <a href="/dashboard/billing" className="font-semibold underline">Passez au plan supérieur</a> pour la traiter.
+        </Alert>
+      )}
       {order.flags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {order.flags.map((f) => (
@@ -318,6 +323,12 @@ export default function OrderPage({ params }: { params: Promise<{ id: string }> 
               <dt>Livraison {order.zoneName ? `(${order.zoneName})` : ''}</dt>
               <dd>{fmt(order.deliveryFee)}</dd>
             </div>
+            {order.discount > 0 && (
+              <div className="flex justify-between text-emerald-700">
+                <dt>Remise {order.promoCode ? `(${order.promoCode})` : ''}</dt>
+                <dd>−{fmt(order.discount)}</dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-line pt-1.5 text-base font-bold">
               <dt>Total à encaisser</dt>
               <dd>{fmt(order.total)}</dd>

@@ -3,6 +3,7 @@ import { t } from '@/lib/storefront-i18n';
 import { Gallery } from './Gallery';
 import { OrderForm } from './OrderForm';
 import { StoreFooter, StoreHeader, WhatsAppFloat } from './StoreHeader';
+import { Pixels } from './Pixels';
 
 /**
  * Product page and ad landing page (§5.3, §7.1). Server-rendered; the only client JS is the order form.
@@ -57,7 +58,13 @@ export function ProductView({ store, product, base, landing = false }: { store: 
         </div>
       </main>
       <WhatsAppFloat phone={store.whatsappPhone} text={`${product.title}`} />
+      <Pixels pixels={store.pixels} event={{ name: 'ViewContent', value: product.price, currency: store.currency, contentId: product.id, contentName: product.title }} />
       {!landing && <StoreFooter store={store} base={base} />}
+      {landing && store.showBadge && (
+        <p className="py-6 text-center text-xs text-muted">
+          Créé avec <a className="font-semibold underline" href={process.env.NEXT_PUBLIC_WEB_URL ?? '/'}>Myabéshop</a>
+        </p>
+      )}
     </div>
   );
 }

@@ -29,6 +29,7 @@ export const FLAG_LABEL: Record<string, string> = {
   LOW_SCORE: 'Client à risque',
   BLACKLISTED: 'Liste noire',
   UNSERVED_ZONE: 'Hors zone : transporteur',
+  OVER_PLAN_LIMIT: 'Limite du plan atteinte',
 };
 
 export const CATEGORY_LABEL: Record<string, string> = {
@@ -60,3 +61,11 @@ export function timeAgo(iso: string): string {
   if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
   return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
+
+export const SUB_LABEL: Record<string, { label: string; className: string }> = {
+  TRIALING: { label: 'Essai', className: 'bg-sky-100 text-sky-900' },
+  ACTIVE: { label: 'Payant', className: 'bg-emerald-100 text-emerald-900' },
+  PAST_DUE: { label: 'Grâce', className: 'bg-amber-100 text-amber-900' },
+  EXPIRED: { label: 'Expiré', className: 'bg-gray-100 text-gray-700' },
+  CANCELLED: { label: 'Remplacé', className: 'bg-gray-100 text-gray-700' },
+};

@@ -189,7 +189,7 @@ export default function OrdersPage() {
       ) : orders.length === 0 ? (
         <EmptyState title="Aucune commande ici">Les nouvelles commandes apparaissent en direct, avec un son.</EmptyState>
       ) : (
-        <Card className="p-0 pr-1">
+        <Card className="!p-0 pr-1">
           <ul>
             {orders.map((o) => (
               <OrderRow

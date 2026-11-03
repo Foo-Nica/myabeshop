@@ -33,9 +33,11 @@ export function StoreFooter({ store, base }: { store: PublicStoreDto; base: stri
             {store.locale === 'en' ? 'Delivery & returns' : 'Livraison et retours'}
           </a>
         </nav>
-        <p className="mt-3 text-xs">
-          Boutique propulsée par <a className="underline" href={process.env.NEXT_PUBLIC_WEB_URL ?? '/'}>Myabéshop</a>
-        </p>
+        {store.showBadge && (
+          <p className="mt-3 text-xs">
+            Créé avec <a className="font-semibold underline" href={`${process.env.NEXT_PUBLIC_WEB_URL ?? ''}/?ref=badge`}>Myabéshop</a> · créez votre boutique gratuitement
+          </p>
+        )}
       </div>
     </footer>
   );

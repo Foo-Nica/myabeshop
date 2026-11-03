@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { COUNTRIES, type AuthResponse } from '@myabeshop/shared/client';
 import { api, ApiError, session } from '@/lib/api';
@@ -9,6 +9,17 @@ import { Alert, Button, Field, Input, Select } from '@/components/ui';
 function LoginInner() {
   const params = useSearchParams();
   const signup = params.get('signup') === '1';
+  // Referral link (§9.3): remembered until the store is created in onboarding.
+  useEffect(() => {
+    const ref = params.get('ref');
+    if (ref) {
+      try {
+        localStorage.setItem('myabe.ref', ref.toUpperCase());
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [params]);
   const [mode, setMode] = useState<'phone' | 'email'>('phone');
   const [step, setStep] = useState<'target' | 'code'>('target');
   const [country, setCountry] = useState('CI');
@@ -49,6 +60,11 @@ function LoginInner() {
       </a>
       <h1 className="text-2xl font-bold">{signup ? 'Créez votre boutique' : 'Connexion'}</h1>
       <p className="mt-1 text-muted">{signup ? 'Commencez avec votre numéro de téléphone : vous recevrez un code.' : 'Marchands, équipes et livreurs.'}</p>
+      {!signup && (
+        <a href="/livreur/connexion" className="mt-2 inline-block text-sm font-semibold text-brand-700">
+          🛵 Vous êtes livreur ? Connexion avec votre code PIN →
+        </a>
+      )}
 
       <div className="mt-6 grid grid-cols-2 rounded-xl bg-canvas p-1" role="tablist">
         {(['phone', 'email'] as const).map((m) => (

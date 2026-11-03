@@ -20,6 +20,7 @@ export default function CouriersPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [amount, setAmount] = useState<number | null>(null);
   const [method, setMethod] = useState('cash');
+  const [pinShown, setPinShown] = useState<{ courierId: string; pin: string; phone: string } | null>(null);
 
   const load = () => store && api.get<CourierDto[]>(`/stores/${store.id}/couriers`).then(setCouriers);
   useEffect(() => void load(), [store]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -57,11 +58,39 @@ export default function CouriersPage() {
                 <Button variant="secondary" onClick={() => void openReport(c)}>Rapport du jour</Button>
                 <a className="tap inline-flex items-center rounded-xl px-3 text-sm font-semibold text-brand-700" href={`/dashboard/orders?courierId=${c.id}`}>Ses commandes</a>
                 {can('couriers.write') && (
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      const res = await api.post<{ pin: string; phone: string }>(`/stores/${store.id}/couriers/${c.id}/pin`, {});
+                      setPinShown({ courierId: c.id, ...res });
+                      await load();
+                    }}
+                  >
+                    {c.hasPin ? 'Nouveau code PIN' : 'Créer son code PIN'}
+                  </Button>
+                )}
+                {can('couriers.write') && (
                   <Button variant="ghost" onClick={async () => { await api.patch(`/stores/${store.id}/couriers/${c.id}`, { active: !c.active }); await load(); }}>
                     {c.active ? 'Désactiver' : 'Réactiver'}
                   </Button>
                 )}
               </div>
+              {pinShown?.courierId === c.id && (
+                <div className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-900">
+                  <p>
+                    Code PIN de {c.name} : <strong className="font-mono text-2xl tracking-widest">{pinShown.pin}</strong>
+                  </p>
+                  <p className="mt-1">Il se connecte sur <strong>{typeof window !== 'undefined' ? window.location.origin : ''}/livreur</strong> avec {pinShown.phone} et ce code. Notez-le : il ne sera plus affiché.</p>
+                  <a
+                    className="mt-2 inline-flex font-semibold text-[#178a45] underline"
+                    target="_blank"
+                    rel="noopener"
+                    href={`https://wa.me/${pinShown.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Bonjour ${c.name}, voici ton accès livreur ${store.name} : ${window.location.origin}/livreur — numéro ${pinShown.phone}, code PIN ${pinShown.pin}`)}`}
+                  >
+                    Envoyer par WhatsApp
+                  </a>
+                </div>
+              )}
               {open === c.id && report && (
                 <div className="space-y-3 rounded-xl bg-canvas p-3 text-sm">
                   <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">

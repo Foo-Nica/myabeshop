@@ -40,7 +40,7 @@ export default function ZonesPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Zones de livraison</h1>
-      <Card className="p-0">
+      <Card className="!p-0">
         <ul className="divide-y divide-line">
           {zones.map((z) => (
             <li key={z.id} className="flex items-center gap-3 p-3">

@@ -115,6 +115,7 @@ export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, json?: unknown) => apiFetch<T>(path, { method: 'POST', json: json ?? {} }),
   patch: <T>(path: string, json: unknown) => apiFetch<T>(path, { method: 'PATCH', json }),
+  put: <T>(path: string, json: unknown) => apiFetch<T>(path, { method: 'PUT', json }),
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
   upload: async (storeId: string, file: File) => {
     const form = new FormData();

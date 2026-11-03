@@ -5,6 +5,7 @@ import { publicApi } from '@/lib/server-api';
 import { t } from '@/lib/storefront-i18n';
 import { STATUS_LABEL } from '@/lib/labels';
 import { WhatsAppIcon } from '@/components/storefront/StoreHeader';
+import { Pixels } from '@/components/storefront/Pixels';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false } };
@@ -78,6 +79,12 @@ export default async function TrackingPage({ params, searchParams }: { params: P
           <span>{L.delivery}</span>
           <span>{order.deliveryFee === 0 ? L.free : fmt(order.deliveryFee)}</span>
         </div>
+        {order.discount > 0 && (
+          <div className="flex justify-between text-emerald-700">
+            <span>{locale === 'en' ? 'Discount' : 'Remise'}</span>
+            <span>−{fmt(order.discount)}</span>
+          </div>
+        )}
         <div className="flex justify-between border-t border-line pt-2 text-base font-bold">
           <span>{L.total}</span>
           <span>{fmt(order.total)}</span>
@@ -95,6 +102,7 @@ export default async function TrackingPage({ params, searchParams }: { params: P
       <a href={`/s/${order.store.slug}`} className="block text-center text-sm underline">
         {order.store.name}
       </a>
+      {isNew && <Pixels pixels={order.pixels} event={{ name: 'Purchase', value: order.total, currency: order.currency, eventId: `order-${token}` }} />}
     </main>
   );
 }

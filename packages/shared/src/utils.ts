@@ -67,6 +67,11 @@ export const RESERVED_SLUGS = new Set([
   'login',
   'signup',
   'myabeshop',
+  'livreur',
+  'paiement',
+  'billing',
+  'conditions',
+  'confidentialite',
 ]);
 
 const SHORT_CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';

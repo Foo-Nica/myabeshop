@@ -90,7 +90,13 @@ export default function Onboarding() {
           onSubmit={(e) => {
             e.preventDefault();
             void run(async () => {
-              const created = await api.post<StoreWithRole>('/stores', { name, country, category, whatsappPhone: whatsapp || undefined });
+              let referralCode: string | undefined;
+              try {
+                referralCode = localStorage.getItem('myabe.ref') ?? undefined;
+              } catch {
+                /* ignore */
+              }
+              const created = await api.post<StoreWithRole>('/stores', { name, country, category, whatsappPhone: whatsapp || undefined, referralCode });
               session.setStore(created.id);
               setStore(created);
               setStep(1);
