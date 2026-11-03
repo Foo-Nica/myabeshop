@@ -1,0 +1,40 @@
+# Production-like stack on a single VPS: docker compose -f docker-compose.prod.yml up -d --build
+# Put a reverse proxy (Caddy, Traefik, Nginx) in front for HTTPS on app., api. and *.your-domain.
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: myabe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: myabeshop
+    volumes: [pgdata:/var/lib/postgresql/data]
+  redis:
+    image: redis:7
+    restart: unless-stopped
+  api:
+    build: { context: ., target: api }
+    restart: unless-stopped
+    depends_on: [postgres, redis]
+    env_file: apps/api/.env.production
+    environment:
+      DATABASE_URL: postgresql://myabe:${POSTGRES_PASSWORD}@postgres:5432/myabeshop
+      REDIS_URL: redis://redis:6379
+    volumes: [uploads:/app/apps/api/uploads]
+    ports: ["4000:4000"]
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
+        NEXT_PUBLIC_ROOT_DOMAIN: ${ROOT_DOMAIN:?set ROOT_DOMAIN}
+        NEXT_PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:?set PUBLIC_WEB_URL}
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      API_INTERNAL_URL: http://api:4000
+    ports: ["3000:3000"]
+volumes:
+  pgdata:
+  uploads:

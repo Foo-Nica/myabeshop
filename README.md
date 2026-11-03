@@ -2,7 +2,7 @@
 
 Plateforme SaaS de boutiques en ligne avec **paiement à la livraison (COD)** pour l'Afrique francophone. Un vendeur crée sa boutique en moins de 10 minutes depuis son téléphone, partage ses liens produits sur WhatsApp, Facebook et TikTok, et suit chaque commande jusqu'à l'argent encaissé.
 
-Ce dépôt contient la **phase MVP** du cahier des charges (parcours A, B et C, zones de livraison, isolation multi-boutiques).
+Ce dépôt contient la **phase MVP** et la **phase « Paiements OK »** du cahier des charges : boutiques, commandes COD, livreurs, abonnements payés par Mobile Money, application livreur hors connexion, marketing, statistiques et back-office de la plateforme.
 
 ## Ce qui est livré
 
@@ -15,6 +15,28 @@ Ce dépôt contient la **phase MVP** du cahier des charges (parcours A, B et C, 
 | **Anti-fraude** | Validation du numéro selon le pays, doublons (même numéro + même produit < 24 h), score client (livrées / refusées), liste noire par boutique, limite de commandes par numéro et par jour, zones non desservies bloquées ou « à expédier par transporteur ». |
 | **Équipe et rôles** | Propriétaire, Gestionnaire, Agent de confirmation (répartition automatique des nouvelles commandes), Livreur. Permissions vérifiées côté serveur à chaque requête. |
 | **Isolation** | Chaque route `/stores/:storeId/*` vérifie l'appartenance et le rôle ; chaque requête est filtrée par `store_id`. Une boutique inaccessible renvoie 404 (on ne révèle pas son existence). Couvert par des tests automatisés, y compris pour le temps réel. |
+
+### Phase « Paiements OK »
+
+| Bloc | Fonctionnalités |
+| --- | --- |
+| **Abonnements Mobile Money** | Plans Gratuit / Starter / Pro / Business, mensuel ou annuel (2 mois offerts). Paiement via **FedaPay** (MTN, Moov, Orange, Wave, carte) ou **simulateur** en local. Webhook signé puis statut relu chez la passerelle, activation idempotente, renouvellement à partir de la date de fin, 7 jours de grâce puis retour automatique au plan Gratuit (aucune donnée supprimée), factures numérotées imprimables en PDF. |
+| **Limites des plans** | Vérifiées côté serveur : produits, membres d’équipe, livreurs, agents, codes promo, pixels, Google Sheets, mention « Créé avec Myabéshop ». Au-delà du quota mensuel, les commandes sont **acceptées mais verrouillées** jusqu’au changement de plan : aucune vente perdue. |
+| **Parrainage** | Lien de parrainage par boutique ; un mois offert au parrain au premier paiement du filleul. |
+| **Application livreur** | PWA installable sur `/livreur` : connexion **téléphone + code PIN** (verrouillage 15 min après 5 erreurs), colis triés par quartier, Appeler / WhatsApp / Itinéraire, motifs de refus et report en un geste, cash à verser. **Fonctionne sans réseau** : la liste est gardée sur le téléphone, chaque action est mise en file puis rejouée au retour du réseau ; le serveur ignore une action déjà appliquée (identifiant client unique). |
+| **Marketing** | Codes promo (pourcentage, montant, livraison offerte ; panier minimum, dates, nombre d’utilisations, consommation atomique), pixels Meta et TikTok (ViewContent, InitiateCheckout, Purchase avec montant, chargés après l’affichage pour tenir le budget 3G), Google Sheets via Apps Script (script fourni dans l’écran). |
+| **Statistiques** | Taux de confirmation et de livraison, panier moyen, **bénéfice estimé** (encaissé − coût produits − commissions − pub), graphiques par jour, détails par produit, ville, source, livreur et agent, dépenses publicitaires, export CSV. |
+| **Back-office super-admin** | `/admin` : boutiques, MRR, essais, abonnés, désabonnements, inscriptions ; recherche de marchands, suspension (vitrine masquée, écritures bloquées), attribution d’un plan, **session support « en tant que »** de 30 min, gestion des plans et prix, paiements, journal d’audit. |
+| **File de tâches** | SMS, WhatsApp et Google Sheets passent par une file **BullMQ + Redis** avec relances (ou en mémoire sans Redis). |
+
+## Comptes de démonstration (`SEED_DEMO=true`)
+
+| Rôle | Connexion | Où |
+| --- | --- | --- |
+| Marchande (Boutique Démo, plan Pro payé, 72 commandes) | téléphone `07 07 07 07 07` (Côte d’Ivoire), code OTP affiché à l’écran | `/login` |
+| Livreur Koffi | téléphone `01 01 01 01 01`, code PIN `1234` | `/livreur/connexion` |
+| Super-admin | téléphone `01 02 03 04 05`, code OTP affiché à l’écran | `/admin` |
+| Cliente | aucun compte | `/p/demo123` (code promo `BIENVENUE10`) |
 
 ## Architecture
 
@@ -30,7 +52,9 @@ packages/
 - Toutes les tables métier portent `store_id`. Le modèle complet de la section 12 est en place, y compris plans, abonnements, paiements, intégrations et journal d'audit.
 - `@myabeshop/shared/client` est le sous-ensemble sans dépendances lourdes importé par les pages publiques, pour tenir le budget 3G.
 - Les images sont redimensionnées et converties en WebP à l'envoi (stockage local en dev, Cloudflare R2 prévu en production).
-- Les SMS et WhatsApp passent par `MessagingService` : pour l'instant les messages sont journalisés, le fournisseur reste à choisir.
+- Les SMS et WhatsApp passent par `MessagingService` et la file de tâches : pour l'instant les messages sont journalisés, le fournisseur reste à choisir.
+- Prisma tourne **sans moteur natif** (`engineType = "client"` + adaptateur `pg`) : rien à télécharger au déploiement pour les requêtes.
+- Les paramètres d’intégration sont chiffrés en base (AES-256-GCM, clé `INTEGRATIONS_KEY`).
 
 ## Démarrer en local
 
@@ -58,15 +82,30 @@ pnpm test                                   # unitaires (shared) + API : parcour
 pnpm --filter @myabeshop/web test:e2e       # Playwright sur profil Pixel 5 (API et web lancés)
 ```
 
+Les tests API couvrent aussi la phase 2 (abonnements, grâce, quota, parrainage, PIN livreur, synchronisation hors ligne idempotente, codes promo, statistiques, back-office) : **35 tests**. Côté navigateur, un test coupe le réseau pendant une livraison et vérifie la synchronisation.
+
 Les tests API utilisent une base dédiée (`TEST_DATABASE_URL`, par défaut `myabeshop_test`) : les migrations y sont appliquées et chaque test crée ses propres boutiques. La CI GitHub Actions exécute typage, tests, build et parcours navigateur.
 
-## Suite prévue (phase « Paiements OK »)
+## Paiements en production (FedaPay)
 
-- PWA livreur hors connexion (file d'actions synchronisée), connexion livreur par code PIN
-- Abonnements par Mobile Money (passerelle à choisir : CinetPay, FedaPay, PayDunya) et application des limites de plan
-- Pixels Meta / TikTok, Google Sheets
-- File BullMQ + Redis pour SMS / WhatsApp, Row Level Security PostgreSQL en défense en profondeur, stockage R2
-- Back-office super-admin
+1. Créez un compte sur [fedapay.com](https://fedapay.com), récupérez la clé secrète (sandbox puis live).
+2. Dans `apps/api/.env` : `PAYMENT_GATEWAY=fedapay`, `FEDAPAY_ENV=sandbox|live`, `FEDAPAY_SECRET_KEY=…`.
+3. Dans le tableau de bord FedaPay, ajoutez le webhook `https://<api>/billing/webhooks/fedapay` et copiez son secret dans `FEDAPAY_WEBHOOK_SECRET`.
+4. Une autre passerelle (CinetPay, PayDunya…) s’ajoute en implémentant `PaymentGateway` (`apps/api/src/billing/gateways`).
+
+## Déploiement
+
+- `Dockerfile` (cibles `api` et `web`) et `docker-compose.prod.yml` (PostgreSQL, Redis, API, web) pour un VPS ; mettez un proxy HTTPS (Caddy, Traefik) devant `app.`, `api.` et `*.votre-domaine`.
+- L’API applique les migrations au démarrage (`prisma migrate deploy`) et lance le cycle des abonnements toutes les heures (`SCHEDULER=off` pour le désactiver sur des instances secondaires).
+- Premier super-admin : `SUPER_ADMIN_PHONE=+229… pnpm db:seed`.
+
+## Suite prévue (phase « Lancement public »)
+
+- Fournisseur SMS / WhatsApp Business branché sur la file de tâches
+- Photo de preuve de livraison, avis clients avec photos, panier multi-produits
+- Row Level Security PostgreSQL en défense en profondeur, stockage Cloudflare R2, Sentry
+- API Conversions Meta / TikTok côté serveur, webhooks et API publique (V2)
+- Pilote avec 30 marchands, sauvegardes et restauration testées
 
 ## Questions ouvertes
 
