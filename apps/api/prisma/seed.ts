@@ -2,6 +2,12 @@
  * Seeds subscription plans (cahier des charges §9.1, prix indicatifs) and, with SEED_DEMO=true,
  * a demo store with products, zones and a courier.
  */
+// Load apps/api/.env when present, like the API does (Node 22 built-in).
+try {
+  process.loadEnvFile();
+} catch {
+  /* no .env file: rely on the real environment */
+}
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -75,7 +81,7 @@ async function main() {
   }
 
   // Platform super-admin (back-office /admin). In production set SUPER_ADMIN_PHONE once.
-  const adminPhone = process.env.SUPER_ADMIN_PHONE ?? (process.env.SEED_DEMO === 'true' ? '+2250102030405' : null);
+  const adminPhone = process.env.SUPER_ADMIN_PHONE || (process.env.SEED_DEMO === 'true' ? '+2250102030405' : null);
   if (adminPhone) {
     await prisma.user.upsert({
       where: { phone: adminPhone },
