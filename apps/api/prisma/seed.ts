@@ -219,7 +219,8 @@ async function seedDemoActivity() {
     });
   }
   await prisma.store.update({ where: { id: store.id }, data: { orderSeq: seq, referralCode: 'DEMO2026' } });
-  await prisma.courier.update({ where: { id: koffi.id }, data: { cashBalance: koffiCash } });
+  // Cash not yet handed over: at least the last deliveries of the day.
+  await prisma.courier.update({ where: { id: koffi.id }, data: { cashBalance: Math.max(koffiCash, 42500) } });
   await prisma.courier.update({ where: { id: moussa.id }, data: { cashBalance: moussaCash } });
 
   // Marketing: a promo code and ad spend.

@@ -112,7 +112,8 @@ function Shell({ children }: { children: ReactNode }) {
     );
   }
 
-  const items = NAV.filter((n) => can(n.perm as never));
+  // "Mes colis" is the courier's own view; owners have the permission but not the role.
+  const items = NAV.filter((n) => can(n.perm as never) && (n.href !== '/livreur' || store.role === 'COURIER'));
   const bottom = items.length > 5 ? items.slice(0, 4) : items;
   const more = items.length > 5 ? items.slice(4) : [];
   const isActive = (href: string) => (href === '/dashboard' ? pathname === href : pathname.startsWith(href));

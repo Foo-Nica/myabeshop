@@ -159,7 +159,7 @@ export default function AdminStorePage({ params }: { params: Promise<{ id: strin
                   {new Date(p.createdAt).toLocaleDateString('fr-FR')} · {p.planName} {p.months === 12 ? '(12 mois)' : ''}
                 </span>
                 <span>
-                  {formatMoney(p.amount, p.currency)} · <span className={p.status === 'SUCCEEDED' ? 'text-emerald-700' : p.status === 'FAILED' ? 'text-red-700' : 'text-amber-700'}>{p.status}</span>
+                  {formatMoney(p.amount, p.currency)} · <span className={p.status === 'SUCCEEDED' ? 'text-emerald-700' : p.status === 'FAILED' ? 'text-red-700' : 'text-amber-700'}>{{ SUCCEEDED: 'payé', FAILED: 'échoué', PENDING: 'en attente', REFUNDED: 'remboursé' }[p.status]}</span>
                 </span>
               </li>
             ))}

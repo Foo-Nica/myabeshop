@@ -74,7 +74,7 @@ function PhoneMock() {
         <p className="text-xs font-bold">🔔 Nouvelle commande n°128</p>
         <p className="text-[11px] text-white/80">Aya · Cocody · 6 000 F</p>
       </div>
-      <div className="absolute -left-24 bottom-16 hidden w-40 rounded-2xl bg-white p-3 shadow-xl ring-1 ring-line sm:block">
+      <div className="absolute -left-28 top-6 hidden w-40 rounded-2xl bg-white p-3 shadow-xl ring-1 ring-line sm:block">
         <p className="text-[11px] text-muted">Cash chez Koffi</p>
         <p className="text-sm font-extrabold text-amber-700">42 500 F</p>
       </div>
