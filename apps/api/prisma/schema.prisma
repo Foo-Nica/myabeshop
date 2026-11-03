@@ -1,0 +1,482 @@
+// Myabéshop data model (cahier des charges §12).
+// Every business table carries store_id: it is the isolation key between stores.
+// Amounts are integers in the currency's minor unit, with an ISO 4217 code on the store.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StoreRole {
+  OWNER
+  MANAGER
+  AGENT
+  COURIER
+}
+
+enum StoreStatus {
+  ACTIVE
+  CLOSED
+  SUSPENDED
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum OrderStatus {
+  NEW
+  UNREACHABLE
+  CONFIRMED
+  CANCELLED
+  SHIPPED
+  POSTPONED
+  DELIVERED
+  REFUSED
+  RETURNED
+}
+
+enum OrderEventType {
+  CREATED
+  STATUS
+  NOTE
+  CALL
+  WHATSAPP
+  ASSIGN
+  EDIT
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String?  @unique
+  email        String?  @unique
+  passwordHash String?  @map("password_hash")
+  locale       String   @default("fr")
+  isSuperAdmin Boolean  @default(false) @map("is_super_admin")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships   StoreMember[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model OtpCode {
+  id         String    @id @default(cuid())
+  target     String
+  codeHash   String    @map("code_hash")
+  expiresAt  DateTime  @map("expires_at")
+  attempts   Int       @default(0)
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([target, createdAt])
+  @@map("otp_codes")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Store {
+  id           String      @id @default(cuid())
+  name         String
+  slug         String      @unique
+  customDomain String?     @unique @map("custom_domain")
+  country      String
+  currency     String
+  locale       String      @default("fr")
+  category     String      @default("other")
+  description  String?
+  logoUrl      String?     @map("logo_url")
+  bannerUrl    String?     @map("banner_url")
+  primaryColor String      @default("#0f766e") @map("primary_color")
+  theme        String      @default("classic")
+  phone        String?
+  whatsappPhone String?    @map("whatsapp_phone")
+  address      String?
+  openingHours String?     @map("opening_hours")
+  social       Json        @default("{}")
+  deliveryPolicy String?   @map("delivery_policy")
+  returnPolicy String?     @map("return_policy")
+  status       StoreStatus @default(ACTIVE)
+  closedMessage String?    @map("closed_message")
+  /// Anti-fraud: max orders per phone number per day (cahier des charges §6.3).
+  maxOrdersPerPhonePerDay Int @default(5) @map("max_orders_per_phone_per_day")
+  /// Unserved zones: block the order (true) or accept it as "à expédier par transporteur" (false).
+  blockUnservedZones Boolean @default(true) @map("block_unserved_zones")
+  /// Per-store order number sequence.
+  orderSeq     Int         @default(0) @map("order_seq")
+  planId       String?     @map("plan_id")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  plan          Plan?          @relation(fields: [planId], references: [id])
+  members       StoreMember[]
+  products      Product[]
+  zones         DeliveryZone[]
+  customers     Customer[]
+  orders        Order[]
+  couriers      Courier[]
+  subscriptions Subscription[]
+  integrations  Integration[]
+
+  @@map("stores")
+}
+
+model StoreMember {
+  id        String    @id @default(cuid())
+  storeId   String    @map("store_id")
+  userId    String    @map("user_id")
+  role      StoreRole
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, userId])
+  @@index([userId])
+  @@map("store_members")
+}
+
+model Product {
+  id                String        @id @default(cuid())
+  storeId           String        @map("store_id")
+  title             String
+  slug              String
+  /// Global short code used in plateforme.com/p/<code>.
+  shortCode         String        @unique @map("short_code")
+  description       String        @default("")
+  price             Int
+  compareAtPrice    Int?          @map("compare_at_price")
+  cost              Int?
+  status            ProductStatus @default(DRAFT)
+  images            String[]      @default([])
+  videoUrl          String?       @map("video_url")
+  options           String[]      @default([])
+  trackStock        Boolean       @default(false) @map("track_stock")
+  stock             Int?
+  lowStockThreshold Int?          @map("low_stock_threshold")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants       ProductVariant[]
+  quantityOffers QuantityOffer[]
+  orderItems     OrderItem[]
+
+  @@unique([storeId, slug])
+  @@index([storeId, status])
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  storeId   String  @map("store_id")
+  productId String  @map("product_id")
+  options   Json
+  title     String
+  price     Int?
+  stock     Int?
+  sku       String?
+  position  Int     @default(0)
+
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([storeId])
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model QuantityOffer {
+  id        String  @id @default(cuid())
+  storeId   String  @map("store_id")
+  productId String  @map("product_id")
+  quantity  Int
+  price     Int
+  label     String?
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, quantity])
+  @@index([storeId])
+  @@map("quantity_offers")
+}
+
+model Customer {
+  id             String   @id @default(cuid())
+  storeId        String   @map("store_id")
+  name           String
+  phone          String
+  deliveredCount Int      @default(0) @map("delivered_count")
+  refusedCount   Int      @default(0) @map("refused_count")
+  blacklisted    Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([storeId, phone])
+  @@map("customers")
+}
+
+model DeliveryZone {
+  id        String   @id @default(cuid())
+  storeId   String   @map("store_id")
+  name      String
+  city      String
+  fee       Int
+  freeAbove Int?     @map("free_above")
+  delay     String?
+  active    Boolean  @default(true)
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([storeId])
+  @@map("delivery_zones")
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  storeId       String      @map("store_id")
+  number        Int
+  /// Unguessable token for the public tracking page.
+  trackingToken String      @unique @map("tracking_token")
+  customerId    String      @map("customer_id")
+  status        OrderStatus @default(NEW)
+  currency      String
+  subtotal      Int
+  deliveryFee   Int         @map("delivery_fee")
+  total         Int
+  zoneId        String?     @map("zone_id")
+  customerName  String      @map("customer_name")
+  customerPhone String      @map("customer_phone")
+  city          String
+  address       String
+  gpsLat        Float?      @map("gps_lat")
+  gpsLng        Float?      @map("gps_lng")
+  note          String?
+  source        String?
+  utm           Json?
+  /// Flags raised by anti-fraud checks (duplicate, low score, unserved zone…).
+  flags         String[]    @default([])
+  agentId       String?     @map("agent_id")
+  courierId     String?     @map("courier_id")
+  callAttempts  Int         @default(0) @map("call_attempts")
+  postponedTo   DateTime?   @map("postponed_to")
+  refusalReason String?     @map("refusal_reason")
+  confirmedAt   DateTime?   @map("confirmed_at")
+  deliveredAt   DateTime?   @map("delivered_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  store    Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer Customer      @relation(fields: [customerId], references: [id])
+  zone     DeliveryZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  courier  Courier?      @relation(fields: [courierId], references: [id], onDelete: SetNull)
+  items    OrderItem[]
+  events   OrderEvent[]
+
+  @@unique([storeId, number])
+  @@index([storeId, status, createdAt])
+  @@index([storeId, createdAt])
+  @@index([storeId, customerPhone])
+  @@index([courierId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String  @id @default(cuid())
+  storeId      String  @map("store_id")
+  orderId      String  @map("order_id")
+  productId    String  @map("product_id")
+  variantId    String? @map("variant_id")
+  title        String
+  variantTitle String? @map("variant_title")
+  quantity     Int
+  unitPrice    Int     @map("unit_price")
+  total        Int
+
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderEvent {
+  id         String         @id @default(cuid())
+  storeId    String         @map("store_id")
+  orderId    String         @map("order_id")
+  type       OrderEventType
+  fromStatus OrderStatus?   @map("from_status")
+  toStatus   OrderStatus?   @map("to_status")
+  userId     String?        @map("user_id")
+  userName   String?        @map("user_name")
+  note       String?
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([storeId])
+  @@map("order_events")
+}
+
+model Courier {
+  id          String   @id @default(cuid())
+  storeId     String   @map("store_id")
+  userId      String?  @map("user_id")
+  name        String
+  phone       String
+  /// Commission per successful delivery, in minor units.
+  commission  Int      @default(0)
+  /// Cash collected and not yet remitted to the merchant.
+  cashBalance Int      @default(0) @map("cash_balance")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  store       Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  remittances CashRemittance[]
+
+  @@unique([storeId, phone])
+  @@map("couriers")
+}
+
+model CashRemittance {
+  id            String   @id @default(cuid())
+  storeId       String   @map("store_id")
+  courierId     String   @map("courier_id")
+  amount        Int
+  method        String
+  note          String?
+  validatedById String?  @map("validated_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  courier Courier @relation(fields: [courierId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([courierId, createdAt])
+  @@map("cash_remittances")
+}
+
+model Plan {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  price     Int
+  currency  String   @default("XOF")
+  /// { ordersPerMonth, products, members, customDomain, pixels, ... } – null = unlimited.
+  limits    Json
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  stores        Store[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  storeId   String             @map("store_id")
+  planId    String             @map("plan_id")
+  status    SubscriptionStatus
+  startsAt  DateTime           @map("starts_at")
+  endsAt    DateTime           @map("ends_at")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  store    Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planId], references: [id])
+  payments Payment[]
+
+  @@index([storeId])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  storeId        String        @map("store_id")
+  subscriptionId String        @map("subscription_id")
+  amount         Int
+  currency       String
+  gateway        String
+  reference      String        @unique
+  status         PaymentStatus @default(PENDING)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@map("payments")
+}
+
+model Integration {
+  id        String   @id @default(cuid())
+  storeId   String   @map("store_id")
+  type      String
+  /// Encrypted JSON configuration.
+  config    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, type])
+  @@map("integrations")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  storeId   String?  @map("store_id")
+  actorId   String?  @map("actor_id")
+  action    String
+  target    String?
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@map("audit_logs")
+}

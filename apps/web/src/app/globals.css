@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-brand-50: #effaf7;
+  --color-brand-100: #d7f2ea;
+  --color-brand-500: #14a383;
+  --color-brand-600: #0f8a6f;
+  --color-brand-700: #0c6e59;
+  --color-brand-900: #083d32;
+  --color-ink: #17201d;
+  --color-muted: #5d6b66;
+  --color-line: #e3e8e6;
+  --color-canvas: #f6f8f7;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Storefront accent comes from the merchant's chosen color. */
+:root {
+  --store: #0f766e;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* 44 px minimum touch targets on interactive controls (§10). */
+.tap {
+  min-height: 44px;
+}
+
+input,
+select,
+textarea {
+  font-size: 16px; /* prevents iOS zoom on focus */
+}
+
+.store-bg {
+  background-color: var(--store);
+}
+.store-text {
+  color: var(--store);
+}
+.store-border {
+  border-color: var(--store);
+}
+
+@keyframes pop {
+  0% { transform: scale(0.96); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pop {
+  animation: pop 0.18s ease-out;
+}

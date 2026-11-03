@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: myabe
+          POSTGRES_PASSWORD: myabe
+          POSTGRES_DB: myabeshop_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U myabe" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://myabe:myabe@localhost:5432/myabeshop_test
+      TEST_DATABASE_URL: postgresql://myabe:myabe@localhost:5432/myabeshop_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @myabeshop/shared build
+      - run: pnpm --filter @myabeshop/api exec prisma generate
+      - run: pnpm typecheck
+      - name: Unit and API tests (parcours A, B, C, isolation)
+        run: pnpm test
+      - run: pnpm build
+      - name: Browser tests (Playwright)
+        env:
+          DATABASE_URL: postgresql://myabe:myabe@localhost:5432/myabeshop_test
+          OTP_DEV_ECHO: "true"
+          JWT_SECRET: ci-secret-ci-secret-ci-secret-ci-secret
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+        run: |
+          pnpm --filter @myabeshop/web exec playwright install --with-deps chromium
+          SEED_DEMO=true pnpm --filter @myabeshop/api seed
+          (cd apps/api && node dist/main.js &) 
+          (cd apps/web && npx next start -p 3000 &)
+          npx wait-on http://localhost:4000/health http://localhost:3000
+          pnpm --filter @myabeshop/web exec playwright test
