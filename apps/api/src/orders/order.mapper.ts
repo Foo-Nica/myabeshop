@@ -47,6 +47,8 @@ export function toOrderSummary(o: SummaryOrder): OrderSummaryDto {
     currency: o.currency,
     subtotal: o.subtotal,
     deliveryFee: o.deliveryFee,
+    discount: o.discount,
+    promoCode: o.promoCode,
     total: o.total,
     customerName: o.customerName,
     customerPhone: o.customerPhone,

@@ -15,7 +15,7 @@ import { setupApp } from './setup-app';
 import { config } from './common/config';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   setupApp(app);
   const doc = new DocumentBuilder()
     .setTitle('Myabéshop API')

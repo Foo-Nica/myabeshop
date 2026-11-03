@@ -31,7 +31,17 @@ export function toStoreDto(s: Store): StoreDto {
   };
 }
 
-export function toPublicStoreDto(s: Store, zones: ZoneDto[]): PublicStoreDto {
+export interface StorefrontExtras {
+  pixels: PublicStoreDto['pixels'];
+  showBadge: boolean;
+  promoCodes: boolean;
+}
+
+export function toPublicStoreDto(
+  s: Store,
+  zones: ZoneDto[],
+  extras: StorefrontExtras = { pixels: { metaPixelId: null, tiktokPixelId: null }, showBadge: false, promoCodes: false },
+): PublicStoreDto {
   return {
     id: s.id,
     name: s.name,
@@ -57,5 +67,6 @@ export function toPublicStoreDto(s: Store, zones: ZoneDto[]): PublicStoreDto {
     zones: zones
       .filter((z) => z.active)
       .map(({ id, name, city, fee, freeAbove, delay }) => ({ id, name, city, fee, freeAbove, delay })),
+    ...extras,
   };
 }

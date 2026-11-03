@@ -2,11 +2,13 @@ import { Body, Controller, Get, HttpCode, Ip, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
+  courierLoginSchema,
   loginSchema,
   otpRequestSchema,
   otpVerifySchema,
   refreshSchema,
   registerSchema,
+  type CourierLoginInput,
   type LoginInput,
   type OtpRequestInput,
   type OtpVerifyInput,
@@ -55,6 +57,15 @@ export class AuthController {
   @ApiZodBody(loginSchema)
   login(@Body(new ZodPipe(loginSchema)) body: LoginInput) {
     return this.auth.login(body);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('courier/login')
+  @HttpCode(200)
+  @ApiZodBody(courierLoginSchema)
+  courierLogin(@Body(new ZodPipe(courierLoginSchema)) body: CourierLoginInput, @Ip() ip: string) {
+    return this.auth.courierLogin(body, ip);
   }
 
   @Public()

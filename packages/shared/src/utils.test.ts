@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addMonths,
+  planCharge,
+  promoDiscount,
   canTransition,
   deliveryFeeFor,
   formatMoney,
@@ -52,5 +55,27 @@ describe('domain rules', () => {
     expect(roleHas('AGENT', 'products.write')).toBe(false);
     expect(roleHas('MANAGER', 'billing.manage')).toBe(false);
     expect(roleHas('OWNER', 'billing.manage')).toBe(true);
+  });
+});
+
+describe('promo codes', () => {
+  it('computes percent, fixed and free-shipping discounts', () => {
+    expect(promoDiscount({ type: 'PERCENT', value: 10 }, 18000, 1000)).toBe(1800);
+    expect(promoDiscount({ type: 'FIXED', value: 2000 }, 1500, 1000)).toBe(1500);
+    expect(promoDiscount({ type: 'FREE_SHIPPING', value: 0 }, 5000, 1500)).toBe(1500);
+  });
+  it('respects the minimum basket', () => {
+    expect(promoDiscount({ type: 'PERCENT', value: 20, minSubtotal: 10000 }, 9000, 0)).toBe(0);
+  });
+});
+
+describe('billing', () => {
+  it('charges 10 months for an annual plan', () => {
+    expect(planCharge(15000, 'ANNUAL')).toEqual({ amount: 150000, months: 12 });
+    expect(planCharge(5000, 'MONTHLY')).toEqual({ amount: 5000, months: 1 });
+  });
+  it('adds months without overflowing short months', () => {
+    expect(addMonths(new Date('2026-01-31T10:00:00Z'), 1).toISOString()).toBe('2026-02-28T10:00:00.000Z');
+    expect(addMonths(new Date('2026-11-03T00:00:00Z'), 12).toISOString()).toBe('2027-11-03T00:00:00.000Z');
   });
 });

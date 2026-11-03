@@ -5,6 +5,7 @@ export interface AuthUser {
   id: string;
   name: string;
   isSuperAdmin: boolean;
+  impersonatedBy?: string;
 }
 
 export interface StoreContext {

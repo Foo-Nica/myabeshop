@@ -25,6 +25,18 @@ import { CouriersService } from './couriers/couriers.service';
 import { PublicController } from './public/public.controller';
 import { StatsController } from './stats/stats.controller';
 import { UploadsController } from './uploads/uploads.controller';
+import { JobsModule } from './jobs/queue.service';
+import { StatsService } from './stats/stats.service';
+import { PlansService } from './billing/plans.service';
+import { BillingService } from './billing/billing.service';
+import { BillingController } from './billing/billing.controller';
+import { BillingScheduler } from './billing/billing.scheduler';
+import { PromosService } from './promos/promos.service';
+import { PromosController } from './promos/promos.controller';
+import { IntegrationsService } from './integrations/integrations.service';
+import { IntegrationsController } from './integrations/integrations.controller';
+import { AdminService } from './admin/admin.service';
+import { AdminController } from './admin/admin.controller';
 
 @Controller()
 class HealthController {
@@ -45,6 +57,7 @@ class HealthController {
       skipIf: () => process.env.NODE_ENV === 'test',
     }),
     PrismaModule,
+    JobsModule,
     NotificationsModule,
     RealtimeModule,
   ],
@@ -59,6 +72,10 @@ class HealthController {
     PublicController,
     StatsController,
     UploadsController,
+    BillingController,
+    PromosController,
+    IntegrationsController,
+    AdminController,
   ],
   providers: [
     AuthService,
@@ -67,6 +84,13 @@ class HealthController {
     ZonesService,
     OrdersService,
     CouriersService,
+    StatsService,
+    PlansService,
+    BillingService,
+    BillingScheduler,
+    PromosService,
+    IntegrationsService,
+    AdminService,
     // Order matters: rate limit, then authenticate, then check store membership and role.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },

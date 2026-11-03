@@ -5,6 +5,7 @@ import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import {
   normalizePhone,
   type AuthResponse,
+  type CourierLoginInput,
   type LoginInput,
   type MeResponse,
   type OtpRequestInput,
@@ -101,6 +102,45 @@ export class AuthService {
     const ok = user?.passwordHash ? await argon2.verify(user.passwordHash, input.password) : false;
     if (!user || !ok) throw new AppError('BAD_CREDENTIALS', 'E-mail ou mot de passe incorrect', HttpStatus.UNAUTHORIZED);
     return this.issue(user.id);
+  }
+
+  /**
+   * Courier app sign-in with phone + PIN (§8.1). 5 wrong PINs lock the courier for 15 minutes.
+   * A phone can deliver for several stores: any store whose PIN matches signs them in.
+   */
+  async courierLogin(input: CourierLoginInput, ip?: string): Promise<AuthResponse> {
+    const phone = normalizePhone(input.phone, input.country);
+    const fail = () => new AppError('BAD_CREDENTIALS', 'Numéro ou code PIN incorrect', HttpStatus.UNAUTHORIZED);
+    if (!phone) throw fail();
+    const couriers = await this.prisma.courier.findMany({ where: { phone: phone.e164, active: true, pinHash: { not: null }, userId: { not: null } } });
+    if (couriers.length === 0) throw fail();
+    const now = new Date();
+    const open = couriers.filter((c) => !c.pinLockedUntil || c.pinLockedUntil < now);
+    if (open.length === 0) throw new AppError('PIN_LOCKED', 'Trop d’essais. Réessayez dans 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
+    for (const c of open) {
+      if (await argon2.verify(c.pinHash!, input.pin)) {
+        await this.prisma.courier.updateMany({ where: { phone: phone.e164 }, data: { pinAttempts: 0, pinLockedUntil: null } });
+        await this.audit(c.userId!, 'courier.login', c.id, ip);
+        return this.issue(c.userId!);
+      }
+    }
+    for (const c of open) {
+      const attempts = c.pinAttempts + 1;
+      await this.prisma.courier.update({
+        where: { id: c.id },
+        data: { pinAttempts: attempts, pinLockedUntil: attempts >= 5 ? new Date(now.getTime() + 15 * 60_000) : null },
+      });
+    }
+    throw fail();
+  }
+
+  /** Short-lived session opened by a super-admin "as" a merchant, for support (always audited). */
+  async impersonate(adminId: string, userId: string, _ip?: string): Promise<AuthResponse> {
+    const me = await this.me(userId);
+    const payload: AccessTokenPayload = { sub: me.id, name: me.name, imp: adminId };
+    const accessToken = await this.jwt.signAsync(payload, { expiresIn: 30 * 60 });
+    // No refresh token: the support session ends after 30 minutes.
+    return { accessToken, refreshToken: '', expiresIn: 30 * 60, user: me };
   }
 
   async refresh(refreshToken: string): Promise<AuthResponse> {

@@ -157,3 +157,48 @@ export function deliveryFeeFor(
   if (zone.freeAbove != null && zone.freeAbove > 0 && subtotal >= zone.freeAbove) return 0;
   return zone.fee;
 }
+
+// ---------- Promo codes & billing ----------
+
+export interface PromoLike {
+  type: 'PERCENT' | 'FIXED' | 'FREE_SHIPPING';
+  value: number;
+  minSubtotal?: number | null;
+}
+
+/**
+ * Discount granted by a promo code. Never more than the subtotal (or the delivery fee for
+ * free shipping); 0 when the minimum basket is not reached.
+ */
+export function promoDiscount(promo: PromoLike, subtotal: number, deliveryFee: number): number {
+  if (promo.minSubtotal != null && subtotal < promo.minSubtotal) return 0;
+  switch (promo.type) {
+    case 'PERCENT':
+      return Math.min(subtotal, Math.round((subtotal * Math.min(Math.max(promo.value, 0), 100)) / 100));
+    case 'FIXED':
+      return Math.min(subtotal, Math.max(promo.value, 0));
+    case 'FREE_SHIPPING':
+      return Math.max(deliveryFee, 0);
+  }
+}
+
+/** Price charged for a plan and billing period, plus the months it covers. */
+export function planCharge(monthlyPrice: number, period: 'MONTHLY' | 'ANNUAL'): { amount: number; months: number } {
+  return period === 'ANNUAL' ? { amount: monthlyPrice * 10, months: 12 } : { amount: monthlyPrice, months: 1 };
+}
+
+/** Adds calendar months, clamping to the end of shorter months (31 Jan + 1 month = 28/29 Feb). */
+export function addMonths(date: Date, months: number): Date {
+  const d = new Date(date);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d;
+}
+
+/** Ratio as a whole percentage, or null when the denominator is 0. */
+export function percent(part: number, whole: number): number | null {
+  return whole > 0 ? Math.round((part / whole) * 100) : null;
+}

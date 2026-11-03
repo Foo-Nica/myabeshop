@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpStatus, Ip, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Ip, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
-import { publicOrderSchema, type PublicOrderInput } from '@myabeshop/shared';
+import { promoValidateSchema, publicOrderSchema, type PublicOrderInput } from '@myabeshop/shared';
+import type { Store } from '@prisma/client';
 import { Public } from '../common/decorators';
 import { ApiZodBody, ZodPipe } from '../common/zod';
 import { PrismaService } from '../common/prisma.service';
@@ -12,6 +13,9 @@ import { OrdersService } from '../orders/orders.service';
 import { ZonesService } from '../zones/zones.service';
 import { productInclude, toPublicProductDto } from '../products/product.mapper';
 import { toPublicStoreDto } from '../stores/store.mapper';
+import { PlansService } from '../billing/plans.service';
+import { IntegrationsService } from '../integrations/integrations.service';
+import { PromosService } from '../promos/promos.service';
 
 const listQuery = z.object({ search: z.string().max(80).optional() });
 
@@ -24,7 +28,20 @@ export class PublicController {
     private readonly prisma: PrismaService,
     private readonly orders: OrdersService,
     private readonly zones: ZonesService,
+    private readonly plans: PlansService,
+    private readonly integrations: IntegrationsService,
+    private readonly promos: PromosService,
   ) {}
+
+  /** Storefront payload: zones plus what the store's plan allows (pixels, promo field, badge). */
+  private async storefront(store: Store) {
+    const [zones, limits] = await Promise.all([this.zones.list(store.id), this.plans.limits(store.id)]);
+    return toPublicStoreDto(store, zones, {
+      pixels: await this.integrations.storefrontPixels(store.id, limits.pixels),
+      showBadge: limits.showPlatformBadge,
+      promoCodes: limits.promoCodes && (await this.prisma.promoCode.count({ where: { storeId: store.id, active: true } })) > 0,
+    });
+  }
 
   private async storeBySlug(slug: string) {
     const store = await this.prisma.store.findUnique({ where: { slug } });
@@ -33,8 +50,7 @@ export class PublicController {
   }
 
   private async publicStore(slug: string) {
-    const store = await this.storeBySlug(slug);
-    return toPublicStoreDto(store, await this.zones.list(store.id));
+    return this.storefront(await this.storeBySlug(slug));
   }
 
   /** Resolves a request host (subdomain or custom domain) to a store slug. */
@@ -81,7 +97,7 @@ export class PublicController {
       include: productInclude,
     });
     if (!product) throw new AppError('PRODUCT_NOT_FOUND', 'Produit introuvable', HttpStatus.NOT_FOUND);
-    return { store: toPublicStoreDto(store, await this.zones.list(store.id)), product: toPublicProductDto(product) };
+    return { store: await this.storefront(store), product: toPublicProductDto(product) };
   }
 
   /** Short product link: plateforme.com/p/<code>. */
@@ -92,7 +108,7 @@ export class PublicController {
       throw new AppError('PRODUCT_NOT_FOUND', 'Produit introuvable', HttpStatus.NOT_FOUND);
     }
     return {
-      store: toPublicStoreDto(product.store, await this.zones.list(product.storeId)),
+      store: await this.storefront(product.store),
       product: toPublicProductDto(product),
     };
   }
@@ -103,6 +119,15 @@ export class PublicController {
   async order(@Param('slug') slug: string, @Body(new ZodPipe(publicOrderSchema)) body: PublicOrderInput, @Ip() ip: string) {
     const store = await this.storeBySlug(slug);
     return this.orders.createPublic(store.id, body, { ip });
+  }
+
+  /** Promo code preview in the order form. */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('stores/:slug/promo/validate')
+  @HttpCode(200)
+  async validatePromo(@Param('slug') slug: string, @Body(new ZodPipe(promoValidateSchema)) body: { code: string; subtotal: number; deliveryFee: number }) {
+    const store = await this.storeBySlug(slug);
+    return this.promos.validate(store.id, body.code, body.subtotal, body.deliveryFee);
   }
 
   /** Order tracking page by unguessable link, no login (§7.4). */
@@ -123,6 +148,7 @@ export class PublicController {
       currency: order.currency,
       subtotal: order.subtotal,
       deliveryFee: order.deliveryFee,
+      discount: order.discount,
       total: order.total,
       customerName: order.customerName,
       city: order.city,
@@ -139,6 +165,7 @@ export class PublicController {
         logoUrl: order.store.logoUrl,
         locale: order.store.locale,
       },
+      pixels: await this.integrations.storefrontPixels(order.storeId, (await this.plans.limits(order.storeId)).pixels),
     };
   }
 }

@@ -9,6 +9,7 @@ import {
   type VariantInput,
 } from '@myabeshop/shared';
 import { PrismaService } from '../common/prisma.service';
+import { PlansService } from '../billing/plans.service';
 import { AppError } from '../common/errors';
 import type { StoreContext } from '../common/request';
 import { productInclude, toProductDto } from './product.mapper';
@@ -19,7 +20,10 @@ function variantTitle(options: string[], values: Record<string, string>) {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   private async uniqueSlug(storeId: string, title: string, excludeId?: string) {
     const base = slugify(title, 80) || 'produit';
@@ -68,6 +72,7 @@ export class ProductsService {
   }
 
   async create(ctx: StoreContext, input: CreateProductInput): Promise<ProductDto> {
+    await this.plans.assertCanAddProduct(ctx.storeId);
     const slug = await this.uniqueSlug(ctx.storeId, input.title);
     const code = await this.uniqueShortCode();
     const product = await this.prisma.product.create({

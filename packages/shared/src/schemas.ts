@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import {
+  AD_CHANNELS,
+  BILLING_PERIODS,
   COUNTRY_CODES,
+  PLAN_CODES,
+  PROMO_TYPES,
   MAX_PRODUCT_IMAGES,
   MAX_VARIANT_OPTIONS,
   ORDER_SOURCES,
@@ -8,6 +12,7 @@ import {
   PRODUCT_STATUSES,
   STORE_CATEGORIES,
   STORE_ROLES,
+  STORE_STATUSES,
   SUPPORTED_CURRENCIES,
 } from './domain';
 
@@ -68,6 +73,8 @@ export const createStoreSchema = z.object({
   logoUrl: z.string().url().max(500).optional(),
   whatsappPhone: z.string().trim().max(30).optional(),
   locale: z.enum(['fr', 'en']).default('fr'),
+  /** Referral code of the merchant who invited this one (§9.3). */
+  referralCode: z.string().trim().toUpperCase().max(20).optional(),
 });
 export type CreateStoreInput = z.infer<typeof createStoreSchema>;
 
@@ -186,6 +193,7 @@ export const publicOrderSchema = z.object({
   note: z.string().trim().max(500).nullable().optional(),
   source: z.enum(ORDER_SOURCES).optional(),
   utm: z.record(z.string().max(40), z.string().max(200)).optional(),
+  promoCode: z.string().trim().toUpperCase().max(30).optional(),
 });
 export type PublicOrderInput = z.infer<typeof publicOrderSchema>;
 
@@ -271,3 +279,148 @@ export const remittanceSchema = z.object({
   note: z.string().max(300).optional(),
 });
 export type RemittanceInput = z.infer<typeof remittanceSchema>;
+
+export const courierPinSchema = z.object({
+  /** Leave empty to let the server generate a 4-digit PIN. */
+  pin: z.string().regex(/^\d{4,6}$/, 'Le code PIN doit avoir 4 à 6 chiffres').optional(),
+});
+export type CourierPinInput = z.infer<typeof courierPinSchema>;
+
+export const courierLoginSchema = z.object({
+  phone: z.string().trim().min(6).max(30),
+  country: z.enum(COUNTRY_CODES).default('CI'),
+  pin: z.string().regex(/^\d{4,6}$/),
+});
+export type CourierLoginInput = z.infer<typeof courierLoginSchema>;
+
+/** Actions queued by the offline courier app and replayed when the network comes back. */
+export const deliverySyncSchema = z.object({
+  actions: z
+    .array(
+      z.object({
+        /** Generated on the phone (UUID): replaying the same action twice has no effect. */
+        id: z.string().min(8).max(64),
+        orderId: id,
+        status: z.enum(['DELIVERED', 'REFUSED', 'POSTPONED']),
+        reason: z.string().trim().max(200).optional(),
+        postponedTo: z.string().datetime().optional(),
+        note: z.string().trim().max(500).optional(),
+        /** When the courier tapped the button, possibly offline. */
+        at: z.string().datetime(),
+      }),
+    )
+    .max(200),
+});
+export type DeliverySyncInput = z.infer<typeof deliverySyncSchema>;
+
+// ---------- Billing ----------
+
+export const checkoutSchema = z.object({
+  planCode: z.enum(PLAN_CODES).exclude(['free']),
+  period: z.enum(BILLING_PERIODS).default('MONTHLY'),
+  /** Mobile Money number of the payer, validated against the store's country. */
+  phone: z.string().trim().min(6).max(30),
+  operator: z.string().trim().max(30).optional(),
+});
+export type CheckoutInput = z.infer<typeof checkoutSchema>;
+
+// ---------- Marketing ----------
+
+export const promoCodeSchema = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .min(3)
+      .max(30)
+      .regex(/^[A-Z0-9_-]+$/, 'Lettres, chiffres, tirets uniquement'),
+    type: z.enum(PROMO_TYPES),
+    value: z.number().int().min(0).max(1_000_000_000).default(0),
+    minSubtotal: amount.nullable().optional(),
+    startsAt: z.string().datetime().nullable().optional(),
+    endsAt: z.string().datetime().nullable().optional(),
+    usageLimit: z.number().int().min(1).max(1_000_000).nullable().optional(),
+    active: z.boolean().default(true),
+  })
+  .superRefine((p, ctx) => {
+    if (p.type === 'PERCENT' && (p.value < 1 || p.value > 100)) {
+      ctx.addIssue({ code: 'custom', path: ['value'], message: 'Pourcentage entre 1 et 100' });
+    }
+    if (p.type === 'FIXED' && p.value < 1) ctx.addIssue({ code: 'custom', path: ['value'], message: 'Montant requis' });
+  });
+export type PromoCodeInput = z.infer<typeof promoCodeSchema>;
+export const updatePromoCodeSchema = z.object({ active: z.boolean(), endsAt: z.string().datetime().nullable(), usageLimit: z.number().int().min(1).nullable() }).partial();
+
+export const promoValidateSchema = z.object({
+  code: z.string().trim().toUpperCase().min(1).max(30),
+  subtotal: amount,
+  deliveryFee: amount.default(0),
+});
+
+export const pixelsConfigSchema = z.object({
+  metaPixelId: z.string().trim().regex(/^\d{6,20}$/, 'Identifiant Meta : chiffres uniquement').nullable().optional(),
+  tiktokPixelId: z.string().trim().regex(/^[A-Z0-9]{10,30}$/i, 'Identifiant TikTok invalide').nullable().optional(),
+});
+export type PixelsConfig = z.infer<typeof pixelsConfigSchema>;
+
+export const sheetsConfigSchema = z.object({
+  /** URL of the merchant's Google Apps Script web app (script.google.com/macros/s/.../exec). */
+  webhookUrl: z
+    .string()
+    .trim()
+    .url()
+    .max(500)
+    .refine((u) => /^https:\/\/script\.google(usercontent)?\.com\//.test(u), 'Collez l’URL de l’application Apps Script (script.google.com)'),
+  active: z.boolean().default(true),
+});
+export type SheetsConfig = z.infer<typeof sheetsConfigSchema>;
+
+export const adSpendSchema = z.object({
+  day: z.string().date(),
+  channel: z.enum(AD_CHANNELS),
+  amount: amount.refine((n) => n > 0, 'Montant requis'),
+  note: z.string().trim().max(200).optional(),
+});
+export type AdSpendInput = z.infer<typeof adSpendSchema>;
+
+export const statsReportQuerySchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+});
+export type StatsReportQuery = z.infer<typeof statsReportQuerySchema>;
+
+// ---------- Super-admin ----------
+
+export const adminStoreListQuerySchema = z.object({
+  q: z.string().trim().max(80).optional(),
+  status: z.enum(STORE_STATUSES).optional(),
+  plan: z.enum(PLAN_CODES).optional(),
+  cursor: id.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+export type AdminStoreListQuery = z.infer<typeof adminStoreListQuerySchema>;
+
+export const adminSuspendSchema = z.object({ reason: z.string().trim().min(3).max(300) });
+export const adminGrantPlanSchema = z.object({ planCode: z.enum(PLAN_CODES), days: z.number().int().min(1).max(730), note: z.string().max(300).optional() });
+export type AdminGrantPlanInput = z.infer<typeof adminGrantPlanSchema>;
+export const adminPlanUpdateSchema = z
+  .object({
+    name: z.string().trim().min(2).max(40),
+    price: amount,
+    active: z.boolean(),
+    limits: z.object({
+      ordersPerMonth: z.number().int().min(1).nullable(),
+      products: z.number().int().min(1).nullable(),
+      members: z.number().int().min(1).nullable(),
+      customDomain: z.boolean(),
+      couriers: z.boolean(),
+      pixels: z.boolean(),
+      promoCodes: z.boolean(),
+      agents: z.boolean(),
+      sheets: z.boolean(),
+      showPlatformBadge: z.boolean(),
+    }).partial(),
+  })
+  .partial();
+export type AdminPlanUpdateInput = z.infer<typeof adminPlanUpdateSchema>;

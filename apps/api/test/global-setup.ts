@@ -7,6 +7,6 @@ import { execSync } from 'node:child_process';
 export default function setup() {
   const url = process.env.TEST_DATABASE_URL ?? 'postgresql://myabe:myabe@localhost:5432/myabeshop_test';
   const env = { ...process.env, DATABASE_URL: url };
-  execSync('npx prisma migrate deploy', { env, stdio: 'pipe' });
+  if (!process.env.TEST_SKIP_MIGRATE) execSync('npx prisma migrate deploy', { env, stdio: 'pipe' });
   execSync('npx ts-node --transpile-only prisma/seed.ts', { env, stdio: 'pipe' });
 }

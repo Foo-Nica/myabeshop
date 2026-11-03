@@ -15,12 +15,15 @@ import { AppError } from '../common/errors';
 import { storeUrl } from '../common/config';
 import type { AuthUser, StoreContext } from '../common/request';
 import { toStoreDto } from './store.mapper';
-
-const TRIAL_DAYS = 14;
+import { TRIAL_DAYS } from '@myabeshop/shared';
+import { PlansService } from '../billing/plans.service';
 
 @Injectable()
 export class StoresService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlansService,
+  ) {}
 
   async isSlugAvailable(slug: string): Promise<boolean> {
     if (RESERVED_SLUGS.has(slug) || slug.length < 3) return false;
@@ -54,6 +57,10 @@ export class StoresService {
       slug = await this.suggestSlug(input.name);
     }
     const whatsappPhone = input.whatsappPhone ? normalizePhone(input.whatsappPhone, input.country)?.e164 ?? null : null;
+    // Referral (§9.3): unknown codes are ignored rather than blocking the sign-up.
+    const referrer = input.referralCode
+      ? await this.prisma.store.findUnique({ where: { referralCode: input.referralCode }, select: { id: true } })
+      : null;
 
     const store = await this.prisma.$transaction(async (tx) => {
       const pro = await tx.plan.findUnique({ where: { code: 'pro' } });
@@ -69,6 +76,7 @@ export class StoresService {
           locale: input.locale,
           whatsappPhone,
           planId: pro?.id ?? free?.id,
+          referredById: referrer?.id ?? null,
           members: { create: { userId: user.id, role: 'OWNER' } },
         },
       });
@@ -81,6 +89,7 @@ export class StoresService {
             status: 'TRIALING',
             startsAt: new Date(),
             endsAt: new Date(Date.now() + TRIAL_DAYS * 86_400_000),
+            source: 'trial',
           },
         });
       }
@@ -143,6 +152,8 @@ export class StoresService {
 
   /** Adds a team member. They sign in with their phone (OTP) or e-mail. */
   async inviteMember(ctx: StoreContext, actor: AuthUser, input: InviteMemberInput) {
+    if (input.role === 'AGENT') await this.plans.assertFeature(ctx.storeId, 'agents');
+    if (input.role === 'COURIER') await this.plans.assertFeature(ctx.storeId, 'couriers');
     const isEmail = input.target.includes('@');
     let where: { email: string } | { phone: string };
     if (isEmail) where = { email: input.target.toLowerCase() };
@@ -151,9 +162,12 @@ export class StoresService {
       if (!phone) throw new AppError('INVALID_PHONE', 'Numéro de téléphone invalide pour ce pays');
       where = { phone: phone.e164 };
     }
-    const user =
-      (await this.prisma.user.findUnique({ where })) ??
-      (await this.prisma.user.create({ data: { ...where, name: input.name } }));
+    const existingUser = await this.prisma.user.findUnique({ where });
+    const already = existingUser
+      ? await this.prisma.storeMember.findUnique({ where: { storeId_userId: { storeId: ctx.storeId, userId: existingUser.id } } })
+      : null;
+    if (input.role !== 'COURIER' && (!already || already.role === 'COURIER')) await this.plans.assertCanAddMember(ctx.storeId);
+    const user = existingUser ?? (await this.prisma.user.create({ data: { ...where, name: input.name } }));
     const member = await this.prisma.storeMember.upsert({
       where: { storeId_userId: { storeId: ctx.storeId, userId: user.id } },
       create: { storeId: ctx.storeId, userId: user.id, role: input.role },

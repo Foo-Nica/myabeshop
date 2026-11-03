@@ -7,7 +7,7 @@ import { MessagingService } from '../src/notifications/messaging.service';
 
 export async function createTestApp() {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication({ rawBody: true });
   setupApp(app);
   await app.init();
   return { app, messaging: app.get(MessagingService) };

@@ -30,6 +30,7 @@ export const PERMISSIONS = [
   'stats.read',
   'deliveries.read.own',
   'deliveries.update.own',
+  'marketing.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -49,6 +50,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, readonly Permission[]> = {
     'couriers.read',
     'couriers.write',
     'stats.read',
+    'marketing.manage',
   ],
   AGENT: ['store.read', 'zones.read', 'orders.read.assigned', 'orders.confirm'],
   COURIER: ['store.read', 'deliveries.read.own', 'deliveries.update.own'],
@@ -164,3 +166,72 @@ export const SUPPORTED_CURRENCIES = Object.keys(CURRENCY_DECIMALS) as [string, .
 
 export const MAX_PRODUCT_IMAGES = 10;
 export const MAX_VARIANT_OPTIONS = 3;
+
+// ---------- Subscriptions (cahier des charges §9.1) ----------
+
+export const PLAN_CODES = ['free', 'starter', 'pro', 'business'] as const;
+export type PlanCode = (typeof PLAN_CODES)[number];
+
+/** Limits stored as JSON on each plan. `null` means unlimited. */
+export interface PlanLimits {
+  ordersPerMonth: number | null;
+  products: number | null;
+  /** Team members other than couriers, owner included. */
+  members: number | null;
+  stores?: number | null;
+  customDomain: boolean;
+  couriers: boolean;
+  pixels: boolean;
+  promoCodes: boolean;
+  agents: boolean;
+  sheets: boolean;
+  api?: boolean;
+  showPlatformBadge: boolean;
+}
+
+export type PlanFeature = 'customDomain' | 'couriers' | 'pixels' | 'promoCodes' | 'agents' | 'sheets';
+
+export const PLAN_FEATURE_LABELS: Record<PlanFeature, string> = {
+  customDomain: 'Domaine personnalisé',
+  couriers: 'Livreurs',
+  pixels: 'Pixels Facebook et TikTok',
+  promoCodes: 'Codes promo',
+  agents: 'Agents de confirmation',
+  sheets: 'Google Sheets',
+};
+
+export const TRIAL_DAYS = 14;
+/** Days after expiry during which the paid plan stays active (§9.1). */
+export const GRACE_DAYS = 7;
+/** Annual billing: 12 months for the price of 10 ("2 mois offerts"). */
+export const ANNUAL_PAID_MONTHS = 10;
+export const BILLING_PERIODS = ['MONTHLY', 'ANNUAL'] as const;
+export type BillingPeriod = (typeof BILLING_PERIODS)[number];
+
+/** Mobile Money operators offered at checkout, by country. */
+export const MOBILE_MONEY_OPERATORS: Record<string, { code: string; name: string }[]> = {
+  BJ: [{ code: 'mtn_open', name: 'MTN MoMo' }, { code: 'moov', name: 'Moov Money' }, { code: 'celtiis_bj', name: 'Celtiis Cash' }],
+  CI: [{ code: 'orange_ci', name: 'Orange Money' }, { code: 'mtn_ci', name: 'MTN MoMo' }, { code: 'moov_ci', name: 'Moov Money' }, { code: 'wave_ci', name: 'Wave' }],
+  SN: [{ code: 'orange_sn', name: 'Orange Money' }, { code: 'free_sn', name: 'Free Money' }, { code: 'wave_sn', name: 'Wave' }],
+  TG: [{ code: 'togocel', name: 'T-Money' }, { code: 'moov_tg', name: 'Moov Money' }],
+  BF: [{ code: 'orange_bf', name: 'Orange Money' }, { code: 'moov_bf', name: 'Moov Money' }],
+  ML: [{ code: 'orange_ml', name: 'Orange Money' }, { code: 'moov_ml', name: 'Moov Money' }],
+  NE: [{ code: 'airtel_ne', name: 'Airtel Money' }],
+  CM: [{ code: 'mtn_cm', name: 'MTN MoMo' }, { code: 'orange_cm', name: 'Orange Money' }],
+  GA: [{ code: 'airtel_ga', name: 'Airtel Money' }],
+};
+
+export const PROMO_TYPES = ['PERCENT', 'FIXED', 'FREE_SHIPPING'] as const;
+export type PromoType = (typeof PROMO_TYPES)[number];
+
+export const AD_CHANNELS = ['facebook', 'tiktok', 'google', 'snapchat', 'influencer', 'other'] as const;
+export type AdChannel = (typeof AD_CHANNELS)[number];
+
+export const PAYMENT_STATUSES = ['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED'] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const SUBSCRIPTION_STATUSES = ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED'] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+/** Order flag set when the store exceeded its monthly order quota: locked until upgrade. */
+export const OVER_LIMIT_FLAG = 'OVER_PLAN_LIMIT';

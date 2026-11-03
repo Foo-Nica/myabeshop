@@ -1,11 +1,13 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { z } from 'zod';
-import type { DashboardStats } from '@myabeshop/shared';
+import { adSpendSchema, statsReportQuerySchema, type AdSpendInput, type DashboardStats, type StatsReportQuery } from '@myabeshop/shared';
 import { CurrentStore, RequirePermission } from '../common/decorators';
-import { ZodPipe } from '../common/zod';
+import { ApiZodBody, ZodPipe } from '../common/zod';
 import { PrismaService } from '../common/prisma.service';
 import type { StoreContext } from '../common/request';
+import { StatsService } from './stats.service';
 
 const query = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) });
 
@@ -13,7 +15,10 @@ const query = z.object({ days: z.coerce.number().int().min(1).max(365).default(3
 @ApiBearerAuth()
 @Controller('stores/:storeId/stats')
 export class StatsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stats: StatsService,
+  ) {}
 
   /** Dashboard (§8.3): today's orders, cash collected, cash pending, confirmation and delivery rates. */
   @Get()
@@ -44,5 +49,35 @@ export class StatsController {
       cashPending: pending._sum.cashBalance ?? 0,
       byStatus,
     };
+  }
+
+  /** Full report: rates, estimated profit, breakdown by product, city, courier, agent and source. */
+  @Get('report')
+  @RequirePermission('stats.read')
+  report(@CurrentStore() ctx: StoreContext, @Query(new ZodPipe(statsReportQuerySchema)) q: StatsReportQuery) {
+    return this.stats.report(ctx, q.from, q.to);
+  }
+
+  @Get('orders.csv')
+  @RequirePermission('stats.read')
+  async csv(@CurrentStore() ctx: StoreContext, @Query(new ZodPipe(statsReportQuerySchema)) q: StatsReportQuery, @Res() res: Response) {
+    const csv = await this.stats.ordersCsv(ctx, q.from, q.to);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="commandes-${ctx.slug}-${q.from ?? 'debut'}-${q.to ?? 'aujourdhui'}.csv"`);
+    res.send(csv);
+  }
+
+  @Post('ad-spends')
+  @RequirePermission('stats.read')
+  @ApiZodBody(adSpendSchema)
+  addSpend(@CurrentStore() ctx: StoreContext, @Body(new ZodPipe(adSpendSchema)) body: AdSpendInput) {
+    return this.stats.addSpend(ctx, body);
+  }
+
+  @Delete('ad-spends/:id')
+  @HttpCode(204)
+  @RequirePermission('stats.read')
+  async removeSpend(@CurrentStore() ctx: StoreContext, @Param('id') id: string) {
+    await this.stats.removeSpend(ctx, id);
   }
 }

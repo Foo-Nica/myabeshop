@@ -31,6 +31,31 @@ export const config = {
   get uploadDir() {
     return process.env.UPLOAD_DIR ?? 'uploads';
   },
+  /** "simulator" (default outside production), "fedapay" or "cinetpay"-ready slot. */
+  get paymentGateway() {
+    return process.env.PAYMENT_GATEWAY ?? (process.env.NODE_ENV === 'production' ? 'fedapay' : 'simulator');
+  },
+  get fedapay() {
+    return {
+      secretKey: process.env.FEDAPAY_SECRET_KEY ?? '',
+      webhookSecret: process.env.FEDAPAY_WEBHOOK_SECRET ?? '',
+      env: (process.env.FEDAPAY_ENV ?? 'sandbox') as 'sandbox' | 'live',
+    };
+  },
+  get redisUrl() {
+    return process.env.REDIS_URL || null;
+  },
+  /** Background jobs (lifecycle of subscriptions) — off in tests, which call them explicitly. */
+  get schedulerEnabled() {
+    return process.env.NODE_ENV !== 'test' && process.env.SCHEDULER !== 'off';
+  },
+  get seller() {
+    return {
+      name: process.env.BILLING_SELLER_NAME ?? 'Nicanor KSH Solutions (NKS) — Myabéshop',
+      address: process.env.BILLING_SELLER_ADDRESS ?? 'Calavi-Zogbadjè, Cotonou, Bénin',
+      email: process.env.BILLING_SELLER_EMAIL ?? 'facturation@myabeshop.com',
+    };
+  },
   accessTokenTtlSeconds: 15 * 60,
   refreshTokenTtlDays: 30,
 };

@@ -2,6 +2,8 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma, type Order, type Store } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import {
+  OVER_LIMIT_FLAG,
+  promoDiscount,
   AGENT_STATUSES,
   COURIER_STATUSES,
   EDITABLE_ORDER_STATUSES,
@@ -32,6 +34,9 @@ import type { AuthUser, StoreContext } from '../common/request';
 import { MessagingService } from '../notifications/messaging.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { orderDetailInclude, orderSummaryInclude, toOrderDetail, toOrderSummary } from './order.mapper';
+import { PromosService } from '../promos/promos.service';
+import { PlansService } from '../billing/plans.service';
+import { IntegrationsService } from '../integrations/integrations.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -53,6 +58,9 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly messaging: MessagingService,
     private readonly realtime: RealtimeGateway,
+    private readonly promos: PromosService,
+    private readonly plans: PlansService,
+    private readonly integrations: IntegrationsService,
   ) {}
 
   // ------------------------------------------------------------------ creation
@@ -162,11 +170,17 @@ export class OrdersService {
     const lineTotal = priceForQuantity(unitPrice, input.quantity, product.quantityOffers);
     const subtotal = lineTotal;
     const deliveryFee = zone ? deliveryFeeFor(zone, subtotal) : 0;
-    const total = subtotal + deliveryFee;
+    const promo = input.promoCode ? await this.promos.findUsable(store.id, input.promoCode, subtotal) : null;
+    const discount = promo ? promoDiscount(promo, subtotal, deliveryFee) : 0;
+    const total = subtotal + deliveryFee - discount;
+
+    // Plan quota (§9.1): the order is never lost, but it stays locked until the merchant upgrades.
+    if (await this.plans.ordersQuotaReached(store.id)) flags.push(OVER_LIMIT_FLAG);
 
     const agentUserId = await this.pickAgent(store.id);
 
     const order = await this.prisma.$transaction(async (tx) => {
+      if (promo) await this.promos.consume(tx, promo.id);
       const customer = await tx.customer.upsert({
         where: { storeId_phone: { storeId: store.id, phone: phone.e164 } },
         create: { storeId: store.id, phone: phone.e164, name: input.customerName },
@@ -186,6 +200,8 @@ export class OrdersService {
           currency: store.currency,
           subtotal,
           deliveryFee,
+          discount,
+          promoCode: promo?.code ?? null,
           total,
           zoneId: zone?.id ?? null,
           customerName: input.customerName,
@@ -229,7 +245,39 @@ export class OrdersService {
     const summary = toOrderSummary(order);
     this.realtime.emitOrderCreated(store.id, summary, agentUserId);
     void this.notifyCustomer(store, order, 'created');
+    void this.pushToSheets(store.id, order.id, 'order.created');
     return order;
+  }
+
+  /** Google Sheets sync (§8.4), queued; never blocks or fails the order flow. */
+  private async pushToSheets(storeId: string, orderId: string, event: 'order.created' | 'order.updated') {
+    try {
+      const o = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true, courier: { select: { name: true } } } });
+      await this.integrations.pushOrder({
+        event,
+        storeId,
+        order: {
+          number: o.number,
+          date: o.createdAt.toISOString(),
+          status: o.status,
+          customerName: o.customerName,
+          customerPhone: o.customerPhone,
+          city: o.city,
+          address: o.address,
+          items: o.items.map((i) => `${i.quantity} × ${i.title}${i.variantTitle ? ` (${i.variantTitle})` : ''}`).join(', '),
+          subtotal: o.subtotal,
+          deliveryFee: o.deliveryFee,
+          discount: o.discount,
+          total: o.total,
+          currency: o.currency,
+          source: o.source,
+          courier: o.courier?.name ?? null,
+          note: o.note,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(`Sheets push failed: ${(e as Error).message}`);
+    }
   }
 
   /** Spreads new orders across confirmation agents: the one with the fewest open orders wins (§6.2). */
@@ -334,10 +382,20 @@ export class OrdersService {
 
   // ------------------------------------------------------------------ status workflow
 
-  async changeStatus(ctx: StoreContext, user: AuthUser, id: string, input: OrderStatusChangeInput): Promise<OrderDetailDto> {
+  async changeStatus(
+    ctx: StoreContext,
+    user: AuthUser,
+    id: string,
+    input: OrderStatusChangeInput,
+    opts: { clientActionId?: string } = {},
+  ): Promise<OrderDetailDto> {
     const order = await this.findScoped(ctx, user, id);
     const from = order.status as OrderStatus;
     const to = input.status;
+
+    if (order.flags.includes(OVER_LIMIT_FLAG)) {
+      throw new AppError('ORDER_OVER_LIMIT', 'Limite de commandes du plan atteinte : passez au plan supérieur pour traiter cette commande', HttpStatus.PAYMENT_REQUIRED);
+    }
 
     if (ctx.role === 'AGENT' && !AGENT_STATUSES.includes(to)) {
       throw new AppError('FORBIDDEN', 'Votre rôle ne permet pas ce statut', HttpStatus.FORBIDDEN);
@@ -384,7 +442,10 @@ export class OrdersService {
 
       const note = [input.reason, input.note].filter(Boolean).join(' — ') || null;
       await tx.orderEvent.create({
-        data: { storeId: ctx.storeId, orderId: order.id, type: 'STATUS', fromStatus: from, toStatus: to, userId: user.id, userName: user.name, note },
+        data: {
+          storeId: ctx.storeId, orderId: order.id, type: 'STATUS', fromStatus: from, toStatus: to, userId: user.id, userName: user.name, note,
+          clientActionId: opts.clientActionId ?? null,
+        },
       });
     });
 
@@ -394,6 +455,7 @@ export class OrdersService {
 
     const detail = await this.get(ctx, order.id);
     this.realtime.emitOrderUpdated(ctx.storeId, detail);
+    void this.pushToSheets(ctx.storeId, order.id, 'order.updated');
     return detail;
   }
 
@@ -551,9 +613,15 @@ export class OrdersService {
         changes.push('zone');
       }
       const deliveryFee = zone ? deliveryFeeFor(zone, subtotal) : order.deliveryFee;
+      // The promo code stays attached; its discount follows the new basket.
+      const promo = order.promoCode
+        ? await tx.promoCode.findUnique({ where: { storeId_code: { storeId: ctx.storeId, code: order.promoCode } } })
+        : null;
+      const discount = promo ? promoDiscount(promo, subtotal, deliveryFee) : 0;
       data.subtotal = subtotal;
       data.deliveryFee = deliveryFee;
-      data.total = subtotal + deliveryFee;
+      data.discount = discount;
+      data.total = subtotal + deliveryFee - discount;
       await tx.order.update({ where: { id: order.id }, data });
       if (changes.length) {
         await tx.orderEvent.create({
